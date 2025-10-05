@@ -1,0 +1,229 @@
+Todas las consultas siguen un flujo de trabajo similar:
+\begin{enumerate}
+    \item Limpieza y preprocesamiento de los datos. Esto es selección de columnas necesarias, manejo de valores nulos, creación de nuevas columnas si es necesario, etc.
+    \item Filtrado de los datos según las condiciones de la consulta.
+    \item Realización de merges, groupby y operaciones entre columnas necesarias.
+    \item Visualización y análisis de los resultados obtenidos.
+\end{enumerate}
+Esta forma de proceder, primero seleccionar columnas y filtrar filas, y luego realizar operaciones, es importante para optimizar el rendimiento de las consultas, ya que de esta manera se reduce la cantidad de datos que se deben procesar en los pasos posteriores.
+
+\subsection{Consultas Propuestas por el Enunciado}
+
+A continuación se presentan las consultas propuestas por el enunciado, junto con las consideraciones tomadas para su resolución y los resultados obtenidos. El código fuente y los resultados completos pueden encontrarse en el notebook \href{https://github.com/patricioibar/datos-tp1/blob/main/consultas_enunciado.ipynb}{\texttt{consultas\_enunciado.ipynb}}.
+
+\subsubsection{¿Cuál es el estado que más descuentos tiene en total? ¿y en promedio?}
+
+Para esta consulta se tomaron algunas consideraciones:
+\begin{itemize}
+    \item Se consideraron los 50 Estados de los Estados Unidos. No se consideraron territorios ni estados militares.
+    \item El estado a considerar es el encontrado en la columna \texttt{billing\_address} de la tabla \texttt{orders}.
+    \item Se consideraron los "estados con más descuentos" a aquellos que poseen la mayor cantidad de órdenes con descuentos aplicados. Se considera que una orden tiene un descuento si el monto del descuento no es nulo y es mayor a 0.
+    \item La segunda parte de la consulta (``¿y en promedio?'') se interpreta como el estado con mayor promedio en el valor de \texttt{discount\_amount}.
+\end{itemize}
+
+Para poder realizar esta consulta, fue necesario extraer el estado y el código postal de la columna \texttt{billing\_address} de la tabla \texttt{orders}. 
+
+Las direcciones parecían seguir un patrón que me facilitó extraer el estado y el código postal mediante una expresión regular.
+Para esto, primero se normalizaron los datos de la columna y luego se utilizó la siguiente expresión regular:
+
+\begin{lstlisting}[language=Python]
+orders["billing_address"] = orders["billing_address"].str.upper()
+orders.fillna({"billing_address":"UNDEFINED"}, inplace=True)
+pattern = r'([A-Z]{2})\s(\d{5})'
+orders[["state", "zip_code"]] = orders["billing_address"].str.extract(pattern)
+\end{lstlisting}
+
+La expresión regular extrae dos grupos: el primero corresponde al estado (dos letras mayúsculas) y el segundo al código postal (cinco dígitos).
+Para verificar que esta extracción fuera exitosa se realizaron las siguientes comprobaciones, para las cuales se obtuvieron resultados positivos (ver Anexo \ref{anexo:output_validacion_consulta1}).
+
+\begin{lstlisting}[language=Python, xleftmargin=25pt, xrightmargin=25pt, ]
+null_state_and_addr = orders["state"].isna() & orders["billing_address"].str.contains("UNDEFINED")
+
+print("Todas las filas que tienen estado nulo, tienen direccion de facturacion indefinida?", 
+        "Si" if null_state_and_addr.sum() == orders["state"].isna().sum() else "No")
+\end{lstlisting}
+
+Finalmente, para responder la consulta, se creó un filtro que deja fuera los estados militares y territorios llamado \texttt{not\_states\_filter} (ver Anexo \ref{anexo:output_filtro_estados}). Se filtraron las órdenes conservando solo aquellas que tenían un monto de descuento mayor a 0 y que cumplían con el filtro de estados, y se agruparon por estado, contando la cantidad de órdenes con descuento por estado.
+
+\begin{lstlisting}[language=Python, xleftmargin=35pt, xrightmargin=35pt, ]
+orders_with_discount = orders.loc[orders["discount_amount"] > 0]
+                                .loc[not_states_filter]
+
+quantity_of_orders_with_discounts_by_state = orders_with_discount.groupby("state")["order_id"]
+                                                                        .count().reset_index()
+\end{lstlisting}
+
+Luego, para visualizar mejor los resultados, se renombraron las columnas y se agregó una columna con el nombre del estado utilizando \texttt{map} (ver Anexo \ref{anexo:output_formateo_resultados}). Se visualizaron los 5 estados con más órdenes utilizando la función \texttt{nlargest} de pandas.
+
+\begin{lstlisting}[language=Python, xleftmargin=35pt, xrightmargin=35pt]
+print("\nTop 5 estados con mas ordenes con descuentos:")
+quantity_of_orders_with_discounts_by_state.nlargest(5, "Cantidad de Ordenes con Descuento")
+\end{lstlisting}
+\begin{table}[H]
+\centering
+
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Código de Estado} & \textbf{Cantidad de Órdenes con Descuento} & \textbf{Nombre del Estado} \\
+\hline
+LA & 13,950 & Louisiana \\
+MO & 13,940 & Missouri \\
+IL & 13,930 & Illinois \\
+KY & 13,903 & Kentucky \\
+IA & 13,873 & Iowa \\
+\hline
+\end{tabular}
+\caption{Top 5 estados con más órdenes con descuentos}
+\end{table}
+
+Entonces la respuesta a ``¿Cuál es el estado que más descuentos tiene en total?'' es Louisiana.
+
+Luego, para encontrar el estado con mayor promedio en el valor de \texttt{discount\_amount}, se calculó el promedio del monto de descuento por estado y se utilizó nuevamente la función \texttt{nlargest} para obtener los 5 estados con mayor promedio.
+
+\begin{lstlisting}[language=Python, xleftmargin=26pt, xrightmargin=26pt]
+states_avg_discount = orders_with_discount.groupby("state")["discount_amount"].mean().reset_index()
+states_avg_discount.nlargest(5, "discount_amount")
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Código de Estado} & \textbf{Promedio de Descuento (\$)} & \textbf{Nombre del Estado} \\
+\hline
+NC & 50.67 & North Carolina \\
+GA & 50.46 & Georgia \\
+OK & 50.42 & Oklahoma \\
+CO & 50.34 & Colorado \\
+MS & 50.32 & Mississippi \\
+\hline
+\end{tabular}
+\caption{Top 5 estados con mayor promedio de monto de descuento}
+\end{table}
+
+Entonces la respuesta a ``¿y en promedio?'' es North Carolina.
+
+\subsubsection{¿Cuáles son los 5 códigos postales más comunes para las órdenes con estado `Refunded'? ¿Y cuál es el nombre más frecuente entre los clientes de esas direcciones?}
+
+Para resolver esta consulta, se aprovechó la extracción del código postal realizada sobre la tabla \texttt{orders} en la consulta anterior. 
+En primer lugar, se filtraron las órdenes con estado `Refunded` y se contaron la cantidad de órdenes por código postal utilizando la función \texttt{value\_counts}. Luego, se utilizó las función \texttt{nlargest} para obtener los 5 códigos postales más comunes entre las órdenes con estado `Refunded`.
+
+\begin{lstlisting}[language=Python, xleftmargin=35pt, xrightmargin=35pt]
+refunded_orders = orders[orders["status"].str.contains("REFUNDED")]
+
+amount_refunded_orders_by_zipcode = refunded_orders["zip_code"].value_counts().reset_index()
+top_refunded_zipcodes = amount_refunded_orders_by_zipcode.nlargest(5, "count")
+
+print("\nTop 5 codigos postales mas comunes para ordenes con estado 'Refunded':")
+print(top_refunded_zipcodes)
+\end{lstlisting}
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|}
+\hline
+\textbf{Código Postal} & \textbf{Cantidad de Órdenes `Refunded`} \\
+\hline
+31571 & 6 \\
+65247 & 5 \\
+38151 & 5 \\
+09045 & 5 \\
+14396 & 5 \\
+\hline
+\end{tabular}
+\caption{Top 5 códigos postales más comunes para órdenes con estado `Refunded`}
+\end{table}
+Como los puestos 2, 3, 4 y 5 están empatados con 5 órdenes cada uno, se agregó una consulta adicional para ver todos los códigos postales que tienen 5 órdenes `Refunded` (ver Anexo \ref{anexo:output_codigos_postales_refunded}).
+
+Para obtener los nombres más frecuentes entre los clientes de esos códigos postales, se filtró la tabla \texttt{customers} utilizando el método \texttt{isin} para seleccionar únicamente las filas cuyo \texttt{postal\_code} se encuentra en un conjunto específico de valores. Luego se contaron las apariciones de cada nombre utilizando nuevamente la función \texttt{value\_counts}. Para mostrar los 5 nombres más frecuentes, se utilizó la función \texttt{nlargest}.
+
+\begin{lstlisting}[language=Python, xleftmargin=20pt, xrightmargin=20pt]
+most_common_names = customers
+    .loc[customers["postal_code"].isin(top_refunded_zipcodes["zip_code"])]["first_name"].value_counts()
+most_common_names.nlargest(5)
+\end{lstlisting}
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|}
+\hline
+\textbf{Nombre} & \textbf{Cantidad de Apariciones} \\
+\hline
+UNDEFINED & 4 \\
+RICHARD & 2 \\
+MICHAEL & 2 \\
+ROBERT & 1 \\
+CYNTHIA & 1 \\
+\hline
+\end{tabular}
+\caption{Top 5 nombres más frecuentes entre los clientes de los códigos postales con más órdenes `Refunded`}
+\end{table}
+
+Como puede verse, el nombre más frecuente entre los clientes de esas direcciones es `UNDEFINED`, que aparece 4 veces. Esto significa que hay 4 órdenes registradas por clientes sin nombre registrado. Nuevamente, se realizó una consulta adicional para ver otros nombres que aparecen una sola vez (ver Anexo \ref{anexo:nombres_mas_comunes}).
+
+\subsubsection{Para cada tipo de pago y segmento de cliente, devolver la suma y el promedio expresado como porcentaje, de clientes activos y de consentimiento de marketing.}
+
+Para resolver esta consulta era necesario tener columnas tanto en la tabla \texttt{customers} como en la tabla \texttt{orders}. Por lo tanto, se realizó un \texttt{merge} entre ambas tablas utilizando la columna \texttt{customer\_id} como clave.
+
+\begin{lstlisting}[language=Python, xleftmargin=78pt, xrightmargin=78pt]
+orders_customers = orders.merge(customers, on="customer_id").reset_index()
+\end{lstlisting}
+
+Luego, para evitar contar dos veces a un mismo cliente que hizo varias órdenes con el mismo método de pago, se eliminaron las filas duplicadas basándose en las columnas \texttt{customer\_id} y \texttt{payment\_method}. 
+
+\begin{lstlisting}[language=Python, xleftmargin=23pt, xrightmargin=23pt]
+orders_customers_unique = orders_customers.drop_duplicates(subset=["payment_method", "customer_id"])
+\end{lstlisting}
+
+Finalmente, se agrupó por \texttt{payment\_method} y \texttt{customer\_segment}, y se calcularon las funciones de agregación necesarias para obtener la cantidad total de clientes, la cantidad de clientes activos y la cantidad de clientes con consentimiento de marketing. Luego, se calcularon los promedios expresados como porcentaje.
+
+\begin{lstlisting}[language=Python, xleftmargin=100pt, xrightmargin=100pt]
+orders_customers_grouped = orders_customers_unique
+    .groupby(["payment_method", "customer_segment"]).agg({
+        "customer_id": "count",
+        "is_active": ["sum", "mean"],
+        "marketing_consent": ["sum", "mean"]
+    })
+orders_customers_grouped[('is_active', 'mean')] *= 100
+orders_customers_grouped[('marketing_consent', 'mean')] *= 100
+\end{lstlisting}
+
+Me pareció interesante graficar los resultados utilizando un \texttt{heatmap} de la librería \texttt{seaborn}, para lo cual fue necesario reestructurar el DataFrame utilizando la función \texttt{unstack} (ver Anexo \ref{anexo:consulta3_heatmap}). En el notebook también pueden encontrarse los resultados expuestos como tabla.
+
+\subsubsection{Para los productos que contienen en su descripción la palabra `stuff', calcular el peso total de su inventario agrupado por marca}
+
+Para esta consulta, se asumió que la columna \texttt{weight\_kg} representa el peso unitario del producto en el inventario.
+
+Primero se filtraron los productos que contienen la palabra `stuff' en su descripción, sin importar mayúsculas o minúsculas. Para esto se utilizó el método \texttt{str.contains} de pandas, con el parámetro \texttt{case=False} para ignorar mayúsculas y minúsculas. También se seleccionaron únicamente las columnas relevantes para la consulta: \texttt{brand}, \texttt{weight\_kg} y \texttt{stock\_quantity}.
+
+\begin{lstlisting}[language=Python, xleftmargin=0pt, xrightmargin=0pt]
+stuff_products = products
+    .loc[products["description"].str.contains("STUFF", case=False)][["brand", "weight_kg", "stock_quantity"]]
+\end{lstlisting}
+
+Luego, se calculó el peso total de cada producto multiplicando el peso unitario por la cantidad en stock, y se creó una nueva columna llamada \texttt{total\_weight\_kg}. También se eliminaron las columnas que ya no eran necesarias.
+
+\begin{lstlisting}[language=Python, xleftmargin=25pt, xrightmargin=25pt]
+stuff_products["total_weight_kg"] = stuff_products["weight_kg"] * stuff_products["stock_quantity"]
+stuff_products.drop(columns=["weight_kg", "stock_quantity"], inplace=True)
+\end{lstlisting}
+
+Finalmente, se agrupó por marca y se sumó el peso total de los productos de cada marca. Se utilizó la función \texttt{nlargest} para obtener las 5 marcas con mayor peso total en inventario.
+
+\begin{lstlisting}[language=Python, xleftmargin=75pt, xrightmargin=75pt]
+    stuff_products.groupby("brand")["total_weight_kg"].sum().nlargest(5)
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|}
+\hline
+\textbf{Marca} & \textbf{Peso Total (kg)} \\
+\hline
+UNDEFINED & 11,157,882.66 \\
+3M & 2,250,899.67 \\
+ADIDAS & 1,923,907.88 \\
+NIKE & 1,783,569.90 \\
+HASBRO & 1,714,411.24 \\
+\hline
+\end{tabular}
+\caption{Top 5 marcas con mayor peso total de productos con 'stuff' en la descripción}
+\end{table}

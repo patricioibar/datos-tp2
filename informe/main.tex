@@ -1,0 +1,106 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[left=2.5cm, top=2.5cm, right=2.5cm, bottom=2.5cm]{geometry}
+\usepackage[spanish]{babel}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\setlength{\parskip}{10pt}
+\definecolor{vscdbg}{rgb}{0.80,0.80,0.85}      % Slightly darker Background
+\definecolor{vscdstring}{rgb}{0.13,0.55,0.13}  % Strings (green)
+\definecolor{vscdcomment}{rgb}{0.46,0.54,0.60} % Comments
+\definecolor{vscdkeyword}{rgb}{0.56,0.38,0.68} % Keywords (darker for contrast)
+\definecolor{vscdnumber}{rgb}{0.48,0.38,0.26}  % Numbers (darker for contrast)
+\definecolor{vscdgray}{rgb}{0.40,0.40,0.40}    % Line numbers
+\definecolor{vscdtext}{rgb}{0.30,0.30,0.30}    % Main text (lighter gray)
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{vscdbg},
+    basicstyle=\ttfamily\footnotesize\color{vscdtext},
+    commentstyle=\color{vscdcomment}\itshape,
+    numberstyle=\tiny\color{vscdgray},
+    stringstyle=\color{vscdstring},
+    breakatwhitespace=false,
+    captionpos=b,
+    numbers=left,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    xleftmargin=50pt,
+    xrightmargin=50pt,
+    frame=single,
+    aboveskip=10pt,
+    belowskip=10pt,
+    columns=flexible
+}
+
+\lstset{style=mystyle}
+
+\definecolor{consolebg}{rgb}{0.95,0.95,0.92}
+\definecolor{consoletext}{rgb}{0.20,0.20,0.20}
+\definecolor{consoleprompt}{rgb}{0.60,0.60,0.60}
+\lstdefinestyle{console}{
+    backgroundcolor=\color{consolebg},
+    basicstyle=\ttfamily\footnotesize\color{consoletext},
+    numberstyle=\tiny\color{consoleprompt},
+    commentstyle=\color{consoleprompt}\itshape,
+    showstringspaces=false,
+    showspaces=false,
+    showtabs=false,
+    frame=single,
+    xleftmargin=30pt,
+    xrightmargin=30pt,
+    aboveskip=8pt,
+    belowskip=8pt,
+    columns=flexible,
+    numbers=none,
+    keywordstyle=\color{consoleprompt},
+    moredelim=**[is][\color{consoleprompt}]{@}{@}
+}
+
+\linespread{1}
+\hypersetup{
+    pdftitle={(TA047) Trabajo Práctico 2},
+    pdfauthor={Patricio Ibar - 109569},
+    pdfsubject={Informe del Trabajo Práctico 2 de la materia Ciencia de Datos TA047},
+}
+\title{
+    \includegraphics[width=0.5\textwidth]
+    {imagenes/Logo-fiuba.png}
+
+    \vspace{1cm}
+    \textbf{(TA047) - Ciencia de Datos} \\
+    \vspace{1cm}
+    \textbf{Trabajo Práctico 2 (2C2025)}
+}
+\author{Patricio Ibar - Padrón 109569}
+\date{6 de octubre de 2025}
+
+\begin{document}
+    
+    \maketitle
+    \newpage
+
+    \tableofcontents
+    \newpage
+
+    \input{secciones/introduccion}
+
+    \input{secciones/limpieza_de_datos.tex}
+
+    \newpage
+    \section{Consultas y Visualizaciones}
+    \input{secciones/consultas/propuestas_del_enunciado}
+
+    \subsection{Consultas Propias}
+    \input{secciones/consultas/propias.tex}
+
+    \newpage
+    \section{Anexo}
+    \addtocontents{toc}{\protect\setcounter{tocdepth}{1}}
+    \input{secciones/anexo}
+    \addtocontents{toc}{\protect\setcounter{tocdepth}{2}}
+    
+\end{document}  

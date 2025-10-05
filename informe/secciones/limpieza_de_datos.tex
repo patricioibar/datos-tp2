@@ -1,0 +1,64 @@
+\section{Limpieza de Datos}
+\label{sec:limpieza_de_datos}
+
+Luego de cargar los datos y previo a la realización de análisis exploratorios, es fundamental llevar a cabo un proceso de limpieza y preparación de los datos.
+En esta sección se describen los pasos realizados para la limpieza y preparación de los datos antes de su análisis. Se detallan las técnicas utilizadas para manejar valores faltantes, reducción del uso de memoria y la transformación de variables.
+
+\subsection{Carga de Datos}
+
+Los datos fueron cargados desde un archivo CSV utilizando la librería pandas de Python. Al cargar una tabla, se especificaron las columnas a utilizar para reducir el uso de memoria. También se especificaron los tipos de datos para cada columna para asegurar una correcta interpretación. Especificar el tipo de datos también optimiza el uso de memoria, ya que pandas asigna el tipo de datos más eficiente posible.
+
+Los tipos de datos utilizados fueron:
+\begin{itemize}
+    \item \texttt{uint32} para identificadores y cantidades.
+    \item \texttt{float32} para precios y totales.
+    \item \texttt{category} para columnas con un número limitado de valores únicos, como estados o método de pago.
+    \item \texttt{datetime64} para fechas y horas.
+    \item \texttt{string} para texto sin formato.
+    \item \texttt{bool} para valores booleanos.
+\end{itemize}
+
+Todas estas acciones se realizan a través de la función \texttt{pd.read\_csv()} de pandas, que permite especificar las columnas a cargar y sus tipos de datos. A continuación se muestra un ejemplo de cómo se realiza la carga de datos:
+
+\begin{figure}[H]
+\begin{lstlisting}[language=Python, xleftmargin=70pt, xrightmargin=70pt]
+# Carga de la tabla de ordenes para las consultas propuestas por el enunciado
+orders = pd.read_csv(
+    'data/orders.csv',
+    usecols=[
+        'order_id',
+        'customer_id',
+        'status',
+        'payment_method',
+        'billing_address',
+        'discount_amount'
+    ],
+    dtype={
+        'order_id': 'uint32',
+        'customer_id': 'uint32',
+        'status': 'category',
+        'discount_amount': 'float32',
+        'payment_method': 'category'
+    },
+)
+\end{lstlisting}
+\end{figure}
+
+\subsection{Manejo de Valores Faltantes}
+
+Es común encontrar valores faltantes en los conjuntos de datos. Estos valores pueden ser el resultado de errores en la recolección de datos o simplemente porque la información no estaba disponible en el momento de la recolección. Por ejemplo, para las primeras consultas del enunciado, se identificaron valores faltantes en las columnas \texttt{status} y \texttt{billing\_address}.
+La presencia de valores faltantes puede ocasionar problemas al ejecutar ciertas operaciones o análisis, por lo que es crucial abordarlos adecuadamente.
+Además, es importante manejar los valores faltantes de una forma acorde al análisis que se desea realizar. En algunos casos puede ser necesario eliminar filas o columnas con valores faltantes, mientras que en otros casos puede ser más apropiado darle un valor específico.
+
+Por ejemplo, tanto en las columnas \texttt{status} como en \texttt{billing\_address}, se decidió dar un valor por defecto a los valores faltantes. Para esto se utilizó la función \texttt{fillna()} de pandas, que permite reemplazar los valores faltantes con un valor específico. En este caso, se decidió reemplazar los valores faltantes con el valor \texttt{"UNDEFINED"}.
+
+En otros casos, por lo menos en este dataset, algunos valores faltantes pueden ser inferidos a partir de valores en otras columnas. Por ejemplo, en la tabla de ítems de orden, las columnas \texttt{quantity}, \texttt{unit\_price} y \texttt{line\_total} están relacionadas por la fórmula:
+\[\texttt{line\_total} = \texttt{quantity} \times \texttt{unit\_price}\] \label{datos:order_items_quantity}
+Si uno de estos valores falta, puede ser calculado a partir de los otros dos.
+
+\subsection{Normalización de Datos}
+
+En muchos casos pueden encontrarse diferentes valores en una misma columna que representan la misma información. Por ejemplo, en la columna \texttt{status} pueden encontrarse los valores \texttt{"delivered"}, \texttt{"DELIVERED"} y \texttt{"Delivered"}, que representan el mismo estado de una orden. Para evitar confusiones y facilitar el análisis, es importante normalizar estos valores a un formato consistente.
+
+La estrategia que adopté fue convertir todos los valores a mayúsculas utilizando la función \texttt{Series.str.upper()} de pandas, además de quitar los posibles espacios que el valor pueda tener al comienzo y al final, utilizando la función \texttt{Series.str.strip()}. \\
+Luego de realizar estas `normalizaciones', si la columna es categórica, es importante reconvertirla al tipo de dato \texttt{category} para optimizar el uso de memoria.
