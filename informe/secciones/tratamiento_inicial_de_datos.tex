@@ -1,22 +1,13 @@
-\section{Limpieza de Datos}
-\label{sec:limpieza_de_datos}
+\section{Tratamiento Inicial de Datos}
+\label{sec:tratamiento_inicial_de_datos}
 
-Luego de cargar los datos y previo a la realización de análisis exploratorios, es fundamental llevar a cabo un proceso de limpieza y preparación de los datos.
-En esta sección se describen los pasos realizados para la limpieza y preparación de los datos antes de su análisis. Se detallan las técnicas utilizadas para manejar valores faltantes, reducción del uso de memoria y la transformación de variables.
+Antes de realizar las consultas, es fundamental llevar a cabo un tratamiento inicial de los datos para asegurar su calidad y consistencia. Este proceso incluye la carga de datos, el manejo de valores faltantes y la normalización de datos.
 
 \subsection{Carga de Datos}
 
-Los datos fueron cargados desde un archivo CSV utilizando la librería pandas de Python. Al cargar una tabla, se especificaron las columnas a utilizar para reducir el uso de memoria. También se especificaron los tipos de datos para cada columna para asegurar una correcta interpretación. Especificar el tipo de datos también optimiza el uso de memoria, ya que pandas asigna el tipo de datos más eficiente posible.
+Los datos fueron cargados desde un archivo CSV utilizando SQLContext de Spark. Al cargar una tabla, lo primero que hice en todos los casos fue tomar el RDD subyacente y hacer un map para quedarme solo con las columnas que me interesan para las consultas que iba a realizar. Este map también se aprovecha para convertir los tipos de datos a tipos más adecuados, normalizar cadenas de texto, y extraer los datos necesarios para las consultas, construyendo nuevas columnas si es necesario.
 
-Los tipos de datos utilizados fueron:
-\begin{itemize}
-    \item \texttt{uint32} para identificadores y cantidades.
-    \item \texttt{float32} para precios y totales.
-    \item \texttt{category} para columnas con un número limitado de valores únicos, como estados o método de pago.
-    \item \texttt{datetime64} para fechas y horas.
-    \item \texttt{string} para texto sin formato.
-    \item \texttt{bool} para valores booleanos.
-\end{itemize}
+En cuanto a la conversión a tipos de datos, 
 
 Todas estas acciones se realizan a través de la función \texttt{pd.read\_csv()} de pandas, que permite especificar las columnas a cargar y sus tipos de datos. A continuación se muestra un ejemplo de cómo se realiza la carga de datos:
 
