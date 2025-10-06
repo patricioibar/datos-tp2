@@ -2,22 +2,295 @@ Todas las consultas siguen un flujo de trabajo similar:
 \begin{enumerate}
     \item Limpieza y preprocesamiento de los datos. Esto es selección de columnas necesarias, manejo de valores nulos, creación de nuevas columnas si es necesario, etc.
     \item Filtrado de los datos según las condiciones de la consulta.
-    \item Realización de merges, groupby y operaciones entre columnas necesarias.
-    \item Visualización y análisis de los resultados obtenidos.
+    \item Realización de otras transformaciones como joins, reduce by key y maps.
+    \item Caché de los resultados intermedios si es necesario.
+    \item Obtención del resultado final, a través de acciones como collect o show.
 \end{enumerate}
-Esta forma de proceder, primero seleccionar columnas y filtrar filas, y luego realizar operaciones, es importante para optimizar el rendimiento de las consultas, ya que de esta manera se reduce la cantidad de datos que se deben procesar en los pasos posteriores.
 
 \subsection{Consultas Propuestas por el Enunciado}
 
-A continuación se presentan las consultas propuestas por el enunciado, junto con las consideraciones tomadas para su resolución y los resultados obtenidos. El código fuente y los resultados completos pueden encontrarse en el notebook \href{https://github.com/patricioibar/datos-tp1/blob/main/consultas_enunciado.ipynb}{\texttt{consultas\_enunciado.ipynb}}.
+A continuación se presentan las consultas propuestas por el enunciado, junto con las consideraciones tomadas para su resolución y los resultados obtenidos. El código fuente y los resultados completos pueden encontrarse en el notebook \href{https://github.com/patricioibar/datos-tp2/blob/main/consultas_enunciado.ipynb}{\texttt{consultas\_enunciado.ipynb}}.
 
 \subsubsection{¿Cuál es el estado que más descuentos tiene en total? ¿y en promedio?}
 
+Para esta consulta se tomaron las siguientes suposiciones:
+\begin{itemize}
+    \item Los estados con más descuentos son aquellos que tienen más órdenes registradas con un \texttt{discount\_amount} no nulo y mayor a cero.
+    \item Se tienen en cuenta los estados de la columna \texttt{billing\_address} de la tabla \texttt{orders}.
+    \item Se considera que el estado está definido por un conjunto de dos letras mayúsculas seguido de un espacio y cinco dígitos (código postal).
+    \item No se consideran los estados que no están definidos por el anterior patrón, ni tampoco las filas con un valor nulo en \texttt{billing\_address}.
+\end{itemize}
+
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 1 propuesta por el enunciado, label={lst:enunciado_q1}, xleftmargin=0pt, xrightmargin=0pt]
+discountAndTotalOrdersByState = ordersRDD \
+.filter(lambda x: x[ordersIdx["state"]] != states.value["UNDEFINED"]) \
+.map(
+    lambda row: (
+        row[ordersIdx["state"]], 
+        (
+            1 if (row[ordersIdx["discount_amount"]] is not None 
+                and row[ordersIdx["discount_amount"]] > 0) else 0,
+            1
+        )
+    )) \
+.reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1])) \
+.cache()
+
+highestCount = discountAndTotalOrdersByState\
+    .reduce(lambda a, b: a if a[1][0] > b[1][0] else b)
+
+highestAvg = discountAndTotalOrdersByState\
+    .reduce(lambda a, b: a if a[1][0]/a[1][1] > b[1][0]/b[1][1] else b)
+\end{lstlisting}
+
+Para resolver esta consulta se hace un filtro inicial para quedarnos solo con las filas que tienen un estado definido. Luego se hace un map para crear una tupla con el estado como clave, y como valor una tupla con la cantidad de órdenes con descuento y la cantidad total de órdenes para ese estado. Luego se hace un reduce by key para sumar las cantidades por estado, y se cachea el RDD intermedio ya que se utiliza para dos acciones distintas. Finalmente, se utilizan dos reducciones: una para encontrar el estado con la mayor cantidad de órdenes con descuento y otra para encontrar el estado con el mayor promedio de órdenes con descuento.
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 1 propuesta por el enunciado, label={lst:enunciado_q1_results}, xleftmargin=0pt, xrightmargin=0pt]
+El Estado con mas ordenes con descuentos es AE con 30858 ordenes con descuentos.
+
+El Estado con el mayor promedio de descuentos es KY con un promedio de 0.22.
+\end{lstlisting}
+
 
 \subsubsection{¿Cuáles son los 5 códigos postales más comunes para las órdenes con estado `Refunded'? ¿Y cuál es el nombre más frecuente entre los clientes de esas direcciones?}
+Para esta consulta se tomaron las siguientes suposiciones:
+\begin{itemize}
+    \item Se tienen en cuenta los códigos postales de la columna \texttt{billing\_address} de la tabla \texttt{orders}.
+    \item Se considera que el código postal está definido por cinco dígitos precedidos de un espacio y un conjunto de dos letras mayúsculas (estado).
+    \item Se buscan los códigos postales con más apariciones entre las órdenes con estado \texttt{Refunded}.
+    \item Las órdenes con estado \texttt{Refunded} son todas aquellas que tienen como valor de la columna \texttt{status} el string \texttt{REFUNDED}, sin diferenciar mayúsculas de minúsculas.
+    \item Para la búsqueda de nombres, se consideran a todos los usuarios de la tabla \texttt{customers} que tienen como valor de la columna \texttt{postal\_code} alguno de los códigos postales encontrados.
+\end{itemize}
 
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 2 propuesta por el enunciado, label={lst:enunciado_q2}, xleftmargin=0pt, xrightmargin=0pt]
+zipCodesWithMostRefundedOrdersCount = ordersRDD \
+.filter(
+    lambda row: (
+        row[ordersIdx["postal_code"]] is not None
+        and row[ordersIdx["status"]] == statuses.value["REFUNDED"]
+    )
+) \
+.map(lambda row: (row[ordersIdx["postal_code"]], 1)) \
+.reduceByKey(lambda a, b: a + b) \
+.takeOrdered(5, key=lambda x: -x[1])
+
+topRefundedZipCodes = [postal_code for postal_code, _ in zipCodesWithMostRefundedOrdersCount]
+
+mostFrecuentNameInTopRefundedZipCodes = customersRDD \
+.filter(
+    lambda row: (
+        row[customersIdx["postal_code"]] in topRefundedZipCodes
+        and row[customersIdx["name"]] != "UNDEFINED"
+    )
+) \
+.map(lambda row: (row[customersIdx["name"]], 1)) \
+.reduceByKey(lambda a, b: a + b) \
+.reduce(lambda a, b: a if a[1] > b[1] else b)
+\end{lstlisting}
+
+Para resolver esta consulta se hace un filtro inicial para quedarnos solo con las filas que tienen un código postal definido y un estado \texttt{Refunded}. Notar que la variabe \texttt{statuses} es un diccionario broadcasteado que mapea los IDs de los status a sus nombres, como se mencionó en la sección \ref{sec:tratamiento_inicial_de_datos}. Luego se hace un map para crear una tupla con el código postal como clave y 1 como valor, y se hace un reduce by key para sumar las apariciones por código postal. Se utiliza la acción \texttt{takeOrdered} para obtener los 5 códigos postales con más apariciones. Luego, se hace otro filtro en la tabla de clientes para quedarnos solo con aquellos que tienen un código postal en la lista de los 5 más comunes y un nombre definido. Se hace un map para crear una tupla con el nombre como clave y 1 como valor, y se hace un reduce by key para sumar las apariciones por nombre. Finalmente, se utiliza una reducción para encontrar el nombre más frecuente entre los clientes de esos códigos postales.
+
+Cabe destacar que, como se vió en el TP1, en esta consulta hay una gran cantidad de empates en los códigos postales más comunes, por lo que los resultados pueden variar entre ejecuciones. Sucede lo mismo con los nombres más frecuentes, ya que hay varios nombres que aparecen la misma cantidad de veces.
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 2 propuesta por el enunciado, label={lst:enunciado_q2_results}, xleftmargin=30pt, xrightmargin=30pt]
+Los 5 codigos postales con mas ordenes reembolsadas son:
+        Codigo	Ordenes reembolsadas
+        31571	6
+        14396	5
+        9045	5
+        38151	5
+        91623	5
+
+El nombre mas frecuente entre los clientes de esos codigos postales es: MICHAEL
+\end{lstlisting}
 
 \subsubsection{Para cada tipo de pago y segmento de cliente, devolver la suma y el promedio expresado como porcentaje, de clientes activos y de consentimiento de marketing.}
+Para esta consulta se tomó una única suposición: se consideran valores únicos por combinación (usuario, método de pago). De esta forma no contamos dos compras del mismo usuario con el mismo método de pago.
+
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 3 propuesta por el enunciado, label={lst:enunciado_q3}, xleftmargin=30pt, xrightmargin=30pt]
+clients_formated = customersRDD.map(
+    lambda row: (
+        row[customersIdx["id"]],
+        (row[customersIdx["segment"]],
+        row[customersIdx["is_active"]],
+        row[customersIdx["consent"]])
+    )
+)
+orders_formated = ordersRDD.map(
+    lambda row: (
+        row[ordersIdx["customer_id"]],
+        row[ordersIdx["payment_method"]]
+    )
+)
+
+clients_orders = clients_formated.join(orders_formated)\
+    .map(
+        lambda x: (
+            (x[0], x[1][1]),
+            (x[1][0][1], x[1][0][2], x[1][0][0])
+        )
+    )
+# (customer_id, ((segment, is_active, consent), payment_method))
+\end{lstlisting}
+
+\begin{figure}[H]
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 3 propuesta por el enunciado (continuación), label={lst:enunciado_q3_2}, xleftmargin=30pt, xrightmargin=30pt]
+result = clients_orders_unique.map(
+    lambda x: (
+        (x[0][1], x[1][2]), # KEY = (payment_method, segment)
+        (1 if x[1][0] else 0, 1 if x[1][1] else 0, 1)  
+    )  # VALUE = (is_active, consent, count)
+).reduceByKey(
+    lambda a, b: (
+        a[0] + b[0], 
+        a[1] + b[1], 
+        a[2] + b[2]
+    )
+).map(
+    lambda x: Row(
+        payment_method=payments_id_to_name.value[x[0][0]],
+        customer_segment=segment_id_to_name.value[x[0][1]],
+        active_count=x[1][0],
+        consent_count=x[1][1],
+        active_percentage=float(f"{x[1][0]/x[1][2] * 100:.2f}"),
+        consent_percentage=float(f"{x[1][1]/x[1][2] * 100:.2f}"),
+    )
+)
+\end{lstlisting}
+\end{figure}
+
+Para resolver esta consulta se hace un join entre las tablas de clientes y órdenes, utilizando como clave el ID del cliente. Luego se hace un map para crear una tupla con la combinación (cliente, método de pago) como clave, y como valor una tupla con los valores de \texttt{is\_active}, \texttt{consent} y \texttt{segment} del cliente. De esta forma, si un cliente tiene varias órdenes con el mismo método de pago, solo se contará una vez. Luego se hace un reduce by key para sumar los valores de \texttt{is\_active}, \texttt{consent} y la cantidad total de combinaciones por cada (método de pago, segmento). Finalmente, se hace un map para calcular los porcentajes de clientes activos y de consentimiento de marketing por cada combinación (método de pago, segmento), y se formatea el resultado en un objeto Row para facilitar su visualización.
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 3 propuesta por el enunciado, label={lst:enunciado_q3_results}, xleftmargin=0pt, xrightmargin=0pt]
++----------------+----------------+------------+-------------+------------+-------------+
+|  payment_method|customer_segment|active_count|consent_count|active_prcnt|consent_prcnt|
++----------------+----------------+------------+-------------+------------+-------------+
+|   BANK TRANSFER|          BUDGET|       16041|        12451|       89.78|        69.69|
+|     CREDIT CARD|         PREMIUM|       16434|        12807|       89.87|        70.04|
+|      DEBIT CARD|         REGULAR|       49130|        38295|       89.97|        70.13|
+|      DEBIT CARD|          BUDGET|       16034|        12441|       89.78|        69.66|
+|CASH ON DELIVERY|         REGULAR|       49140|        38307|       89.97|        70.13|
+|       UNDEFINED|          BUDGET|       15806|        12263|       89.82|        69.68|
+|  DIGITAL WALLET|       UNDEFINED|        8231|         6365|       89.97|        69.57|
+|      DEBIT CARD|       UNDEFINED|        8234|         6369|       89.99|        69.61|
+|          PAYPAL|       UNDEFINED|        8233|         6367|       89.98|        69.58|
+|          PAYPAL|         PREMIUM|       16435|        12808|       89.88|        70.04|
+|   BANK TRANSFER|         REGULAR|       49126|        38297|       89.96|        70.13|
+|     CREDIT CARD|       UNDEFINED|        8232|         6367|       89.98|        69.59|
+|          PAYPAL|         REGULAR|       49138|        38306|       89.96|        70.13|
+|CASH ON DELIVERY|         PREMIUM|       16437|        12807|       89.88|        70.03|
+|       UNDEFINED|       UNDEFINED|        8123|         6287|       89.98|        69.64|
+|  DIGITAL WALLET|          BUDGET|       16039|        12445|       89.79|        69.67|
+|CASH ON DELIVERY|       UNDEFINED|        8233|         6368|       89.97|        69.59|
+|       UNDEFINED|         PREMIUM|       16172|        12606|       89.82|        70.02|
+|  DIGITAL WALLET|         REGULAR|       49127|        38299|       89.97|        70.14|
+|      DEBIT CARD|         PREMIUM|       16442|        12810|       89.89|        70.03|
++----------------+----------------+------------+-------------+------------+-------------+
+only showing top 20 rows
+\end{lstlisting}
 
 
 \subsubsection{Para los productos que contienen en su descripción la palabra `stuff', calcular el peso total de su inventario agrupado por marca}
+Para esta consulta se tomó una dos consideracioes:
+\begin{itemize}
+    \item Se consideran solo los productos que tienen un valor definido en la columna \texttt{brand}.
+    \item Se consideran solo los productos que tienen un valor mayor a cero y no nulo en la columna \texttt{weight\_kg}.
+\end{itemize}
+
+Los productos que contienen la palabra 'stuff' en su descripción son aquellos que tienen la palabra 'stuff' en cualquier parte de la cadena de texto, sin diferenciar mayúsculas de minúsculas. Esto se identifica al momento de cargar los datos, creando una nueva columna booleana \texttt{contains\_stuff} en la tabla de productos en el mapeo inicial de las columnas a través de la función mostrada en el listado \ref{lst:mapeo_datos_q4}.
+
+\begin{lstlisting}[language=Python, caption=Mapeo de columnas inicial para la consulta 4, label={lst:mapeo_datos_q4}, xleftmargin=5pt, xrightmargin=5pt]
+def retain_products_columns(row: Row):
+    brand = "UNDEFINED" if row.brand is None else row.brand.strip().upper()
+    weight = 0.0 if row.weight_kg is None else row.weight_kg
+    stock = 0 if row.stock_quantity is None else row.stock_quantity
+    is_stuff = False if row.description is None else ("STUFF" in row.description.upper())
+    return (
+        brand,
+        weight,
+        stock,
+        is_stuff,
+    )
+\end{lstlisting}
+
+Luego, para resolver la consulta simplemente se hace un filtro usando la columna recién generada \texttt{is\_stuff}, y se hace un map para crear una tupla con la marca como clave y el peso como valor. Finalmente, se hace un reduce by key para sumar los pesos por marca, y se utiliza la acción \texttt{takeOrdered} para obtener las 5 marcas con mayor peso total.
+
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 4 propuesta por el enunciado, label={lst:enunciado_q4}, xleftmargin=20pt, xrightmargin=20pt]
+stuff_products_weight_by_brand = productsRDD \
+    .filter(lambda x: (
+        x[productsIdx["is_stuff"]] and x[productsIdx["brand"]] != "UNDEFINED"
+    )) \
+    .map(lambda x: (x[productsIdx["brand"]], x[productsIdx["weight"]])) \
+    .reduceByKey(lambda a, b: a + b)
+    
+heaviest_brands = stuff_products_weight_by_brand.takeOrdered(5, key=lambda x: -x[1])
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 4 propuesta por el enunciado, label={lst:enunciado_q4_results}, xleftmargin=30pt, xrightmargin=30pt]
+Las 5 marcas con mayor peso en productos cuya descripcion contiene 'Stuff' son:
+Marca: 3M, Peso total: 4250.86
+Marca: WAYFAIR, Peso total: 4080.17
+Marca: ADIDAS, Peso total: 4057.34
+Marca: NIKE, Peso total: 3614.96
+Marca: HASBRO, Peso total: 3338.58
+\end{lstlisting}
+
+\subsubsection{Calcular el porcentaje de productos cuyo stock es al menos 20\% más alto que el stock promedio de su marca}
+
+Para esta consulta se tomó una única consideración: se consideran solo los productos que tienen un valor definido en la columna \texttt{brand}.
+
+Primero se calcula el stock promedio por marca, haciendo un map para crear una tupla con la marca como clave y una tupla con el stock y 1 como valor. Luego se hace un reduce by key para sumar los stocks y las cantidades por marca, y finalmente se hace un mapValues para calcular el promedio de stock por marca.
+
+Luego, se hace un join entre el RDD original de productos y el RDD con el stock promedio por marca, utilizando como clave la marca. Luego se hace un map para crear una tupla con dos valores: un indicador que vale 1 si el stock del producto es al menos 20\% mayor que el stock promedio de su marca, y 0 en caso contrario; y un contador que vale 1 para cada producto. Finalmente, se hace una reducción para sumar ambos valores, y se calcula el porcentaje dividiendo la cantidad de productos con stock alto por la cantidad total de productos.
+
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 5 propuesta por el enunciado, label={lst:enunciado_q5}, xleftmargin=20pt, xrightmargin=20pt]
+avg_stock_by_brand = productsRDD \
+    .filter(lambda x: x[productsIdx["brand"]] != "UNDEFINED") \
+    .map(lambda x: (x[productsIdx["brand"]], (x[productsIdx["stock"]], 1))) \
+    .reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1])) \
+    .mapValues(lambda x: x[0]/x[1])
+
+high_stock_prods_and_total = productsRDD\
+    .map(lambda x: (x[productsIdx["brand"]], x[productsIdx["stock"]])) \
+    .join(avg_stock_by_brand) \
+    .map(lambda x: ( # (brand, (stock, avg_stock))
+        1 if x[1][0] > x[1][1]*1.2 else 0,  # productos con stock > 20% del promedio
+        1
+    ))\
+    .reduce(lambda a, b: (a[0] + b[0], a[1] + b[1]))
+
+result = high_stock_prods_and_total[0] / high_stock_prods_and_total[1] * 100
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 5 propuesta por el enunciado, label={lst:enunciado_q5_results}, xleftmargin=10pt, xrightmargin=10pts]
+El porcentaje de productos con stock mayor al 20% del promedio de su marca es: 41.63%
+\end{lstlisting}
+
+\subsubsection{Obtener la cantidad de órdenes que no hayan comprado ninguno de los 10 productos más vendidos}
+Para esta consulta se considera que los productos más vendidos son aquellos que tienen mayor cantidad vendida (\texttt{quantity}) entre todas las órdenes que aparecen.
+
+Primero se buscan los 10 productos más vendidos, haciendo un map para crear una tupla con el ID del producto como clave y la cantidad vendida como valor. Luego se hace un reduce by key para sumar las cantidades vendidas por producto, y se utiliza la acción \texttt{takeOrdered} para obtener los 10 productos con mayor cantidad vendida.
+
+Luego se hace un map en el RDD de items para crear una tupla con el ID de la orden como clave y un booleano que indica si el producto de esa fila está entre los 10 más vendidos. Luego se hace un reduce by key para combinar los booleanos por orden, utilizando una función OR para determinar si la orden contiene al menos uno de los productos más vendidos. Finalmente, se filtra para quedarnos con las órdenes que no contienen ninguno de los productos más vendidos y se cuenta la cantidad de estas órdenes.
+
+\begin{lstlisting}[language=Python, caption=Resolución de la consulta 6 propuesta por el enunciado, label={lst:enunciado_q6}, xleftmargin=20pt, xrightmargin=20pt]
+top_products_counts = itemsRDD \
+    .map(lambda x: (x[itemsIdx["product_id"]], x[itemsIdx["quantity"]])) \
+    .reduceByKey(lambda a, b: a + b) \
+    .takeOrdered(10, key=lambda x: -x[1])
+
+top_products_ids = [product_id for product_id, _ in top_products_counts]
+
+not_top_products_orders = itemsRDD \
+    .map(lambda x: (
+        x[itemsIdx["order_id"]],
+        True if x[itemsIdx["product_id"]] in top_products_ids else False
+        )) \
+    .reduceByKey(lambda a, b: a or b) \
+    .filter(lambda x: not x[1]) \
+    .count()
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 6 propuesta por el enunciado, label={lst:enunciado_q6_results}, xleftmargin=0pt, xrightmargin=0pt]
+La cantidad de ordenes que no contienen ninguno de los 10 productos mas vendidos es: 99507
+\end{lstlisting}
