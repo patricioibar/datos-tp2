@@ -1,2 +1,283 @@
-A continuación se presentan consultas adicionales para cumplir con los requerimientos del trabajo práctico, junto con las consideraciones tomadas para su resolución y los resultados obtenidos. El código fuente y los resultados completos pueden encontrarse en el notebook \href{https://github.com/patricioibar/datos-tp1/blob/main/consultas_propias.ipynb}{\texttt{consultas\_propias.ipynb}}.
+A continuación se presentan consultas adicionales para cumplir con los requerimientos del trabajo práctico, junto con las consideraciones tomadas para su resolución y los resultados obtenidos. El código fuente y los resultados completos pueden encontrarse en el notebook \href{https://github.com/patricioibar/datos-tp2/blob/main/consultas_propias.ipynb}{\texttt{consultas\_propias.ipynb}}.
 
+\subsubsection{Monto total recaudado por ventas de los 5 productos con más reseñas positivas.}
+Para esta consulta se tomaron las siguientes hipótesis:
+\begin{itemize}
+    \item Se considera que una reseña es positiva cuando el rating de la misma es mayor que 3.
+    \item Si una reseña tiene un valor nulo en el \textit{rating}, no se considera.
+    \item Si un \textit{order\_item} tiene valor nulo en \textit{line\_total}, el valor puede ser inferido a través del precio unitario y la cantidad comprada.
+\end{itemize}
+
+Al igual que en el TP1, si un productor tiene un valor nulo en \textit{line\_total}, el mismo se infiere a través de la siguiente fórmula:
+\[line\_total = unit\_price \times quantity\]
+
+Primero se buscan los 5 productos con más reseñas positivas. Esto se hace filtrando la tabla de reseñas para quedarse solo con las reseñas positivas, luego se mapea cada reseña positiva a un par (product\_id, 1), y finalmente se reduce por clave sumando los valores y se toman los 5 productos con mayor cantidad de reseñas positivas.
+
+Luego, con los IDs de los 5 productos obtenidos, se filtra la tabla de \textit{order\_items} para quedarse solo con los items que pertenecen a esos productos, y se mapea cada item a un par (product\_id, line\_total). Finalmente, se reduce por clave sumando los valores para obtener el monto total recaudado por cada uno de esos productos.
+
+También se obtiene el nombre de cada producto para mostrarlo en los resultados. Esto se hace filtrando la tabla de productos para quedarse solo con los productos cuyos IDs están en la lista de los 5 productos con más reseñas positivas, y luego mapeando cada producto a un par (id, name). Finalmente, se convierte el resultado en un diccionario para facilitar la muestra de resultados.
+
+\begin{lstlisting}[caption={Resolución de la consulta 1 propuesta propia.}, xleftmargin=20pt, xrightmargin=20pt]
+top_5_products = reviewsRDD \
+    .filter(lambda row: row[reviewsIdx["rating"]] > 3) \
+    .map(lambda row: (row[reviewsIdx["product_id"]], 1)) \
+    .reduceByKey(lambda a, b: a + b) \
+    .takeOrdered(5, key=lambda x: -x[1])
+
+top_5_products_ids = [prod[0] for prod in top_5_products]
+
+top_5_products_sells = itemsRDD \
+    .filter(lambda row: row[itemsIdx["product_id"]] in top_5_products_ids) \
+    .map(lambda row: (row[itemsIdx["product_id"]], row[itemsIdx["line_total"]])) \
+    .reduceByKey(lambda a, b: a + b) \
+    .collect()
+
+top_5_products_names = productsRDD \
+    .filter(lambda row: row[productsIdx["id"]] in top_5_products_ids) \
+    .map(lambda row: (row[productsIdx["id"]], row[productsIdx["name"]])) \
+    .collectAsMap()
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 1 propuesta propia, label={lst:propia_q1_results}, xleftmargin=30pt, xrightmargin=30pt]
+Top 5 productos con mas resenas positivas y monto de sus ventas totales:
+Producto Fully-configurable high-level circuit: $8320.50
+Producto Persevering logistical help-desk: $12220.00
+Producto Innovative solution-oriented installation: $291.20
+Producto Seamless radical architecture: $13547.28
+Producto Robust cohesive utilization: $271.51
+\end{lstlisting}
+
+\subsubsection{Durante 2024 ¿Qué porcentaje de las órdenes `REFUNDED` fueron órdenes con descuento? ¿La mayoría eran de usuarios activos? ¿Qué segmento de usuario realizó la mayor cantidad de reembolsos?}
+Para esta consulta se tomaron las siguientes hipótesis:
+\begin{itemize}
+    \item Si el valor del campo \textit{discount\_amount} en \textit{orders} es nulo, se asume que la orden no tuvo descuento.
+    \item Si el usuario de una orden no está en la tabla de \textit{customers}, se asume que no es usuario activo.
+\end{itemize}
+
+Para resolver la consulta primero se filtran las órdenes para quedarse solo con las que tienen estado `REFUNDED` y fueron realizadas en 2024. Luego, se hace un \textit{left outer join} con la tabla de clientes para obtener la información del cliente asociado a cada orden. Después, se mapea cada orden a una tupla que contiene el monto del descuento, el segmento del cliente y si el cliente es activo o no. En este map se tiene en cuenta de considerar los datos de clientes que podrían ser nulos debido al \textit{left outer join}. Finalmente, se cachea el resultado para optimizar las siguientes operaciones.
+
+Luego, se mapea cada fila del RDD cacheado a una tupla que contiene tres valores: si la orden tuvo descuento (1 si tuvo descuento, 0 si no), si el cliente es activo (1 si es activo, 0 si no), y un contador de 1 para contar el total de órdenes. Se reduce por clave sumando los valores para obtener el total de órdenes con descuento, el total de órdenes de usuarios activos y el total de órdenes. Con estos totales, se calcula el porcentaje de órdenes con descuento y el porcentaje de órdenes de usuarios activos.
+
+Finalmente, para obtener el segmento de usuario que realizó la mayor cantidad de reembolsos, se mapea cada fila del RDD cacheado a un par (segmento, 1) y se reduce por clave sumando los valores. Luego, se reduce el resultado para quedarse con el segmento que tiene la mayor cantidad de reembolsos.
+
+\begin{lstlisting}[caption={Resolución de la consulta 2 propuesta propia.}, xleftmargin=20pt, xrightmargin=20pt]
+orders_user_active_and_segment = ordersRDD \
+    .filter(lambda row: (
+        row[ordersIdx["status"]] == statuses.value["REFUNDED"] 
+        and row[ordersIdx["year"]] == 2024
+        )) \
+    .map(lambda row: (row[ordersIdx["customer_id"]], row)) \
+    .leftOuterJoin(customersRDD.map(lambda row: (row[customersIdx["id"]], row))) \
+    .map(lambda row: (
+        row[1][0][ordersIdx["discount_amount"]],
+        row[1][1][customersIdx["segment"]] if row[1][1] is not None \
+            else bc_segment_id_to_name.value["UNDEFINED"],
+        row[1][1][customersIdx["is_active"]] if row[1][1] is not None else False,
+    )).cache()
+
+discount_total_and_active_users = orders_user_active_and_segment \
+    .map(
+        lambda row: (
+            1 if row[0] > 0 else 0, # tiene descuento
+            1 if row[2] else 0, # es de usuario activo
+            1,  # ordenes totales
+        )
+    ).reduce(lambda a, b: (a[0] + b[0], a[1] + b[1], a[2] + b[2]))
+
+discount_refunded_orders_percentaje = \
+    (discount_total_and_active_users[0] / discount_total_and_active_users[2]) * 100
+
+active_user_percentaje = \ 
+    (discount_total_and_active_users[1] / discount_total_and_active_users[2]) * 100
+
+most_refunded_segment = orders_user_active_and_segment \
+    .map(lambda row: (row[1], 1)) \
+    .reduceByKey(lambda a, b: a + b) \
+    .reduce(lambda a, b: a if a[1] > b[1] else b)
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 2 propuesta propia, label={lst:propia_q2_results}, xleftmargin=30pt, xrightmargin=30pt]
+El 21.29% de las ordenes REFUNDED durante 2024 fueron ordenes con descuento.
+La mayoria eran de usuarios activos.
+El segmento que mas ordenes REFUNDED tuvo fue REGULAR con 7284 ordenes.
+\end{lstlisting}
+
+\subsubsection{¿Cuáles son las 3 marcas que vendieron menos unidades de productos durante 2025? Mostrar los nombres de los productos que más ingresos generaron de esas marcas.}
+Para esta consulta se toma una única consideración: No se tienen en cuenta para este análisis las ventas cuyo producto no está registrado en la tabla de \textit{products}.
+
+Primero se hace un \textit{inner join} entre las tablas de \textit{order\_items} y \textit{products} para obtener la información de la marca de cada producto vendido. Luego, se mapea cada fila del resultado a un par (marca, cantidad vendida) y se reduce por clave sumando las cantidades vendidas para obtener el total de unidades vendidas por cada marca. Finalmente, se toman las 3 marcas con menos unidades vendidas.
+
+Luego, se filtra la tabla de \textit{order\_items} para quedarse solo con los items que pertenecen a las marcas obtenidas en el paso anterior. Se mapea cada item a un par ((marca, product\_id), line\_total) y se reduce por clave sumando los valores para obtener el total de ingresos generados por cada producto de esas marcas. Luego, se mapea el resultado a un par (marca, (product\_id, total\_ingresos)) y se reduce por clave para quedarse con el producto que generó más ingresos para cada marca.
+
+Finalmente, se obtiene el nombre de cada producto para mostrarlo en los resultados. Esto se hace filtrando la tabla de productos para quedarse solo con los productos cuyos IDs están en la lista de productos que generaron más ingresos para las marcas con menos ventas, y luego mapeando cada producto a un par (id, name). Finalmente, se convierte el resultado en un diccionario para facilitar la muestra de resultados.
+
+\begin{lstlisting}[caption={Resolución de la consulta 3 propuesta propia.}, xleftmargin=20pt, xrightmargin=20pt]
+items_products_joined = itemsRDD \
+.map(
+    lambda row: (
+        row[itemsIdx["product_id"]], 
+        (row[itemsIdx["quantity"]], row[itemsIdx["line_total"]])
+    )
+).join(productsRDD.map(
+    lambda row: (row[productsIdx["id"]], (row[productsIdx["brand"]]))
+))
+
+less_sells_brands = items_products_joined.map(
+    lambda row: (
+        row[1][1], # brand
+        row[1][0][0], # quantity
+    )
+).reduceByKey(lambda a, b: a + b) \
+.takeOrdered(3, key=lambda x: x[1])
+
+less_sells_brands_names = [brand[0] for brand in less_sells_brands]
+
+brand_sells = itemsRDD.map(
+    lambda row: (row[itemsIdx["product_id"]], row[itemsIdx["line_total"]])
+).join(productsRDD.map(
+    lambda row: (row[productsIdx["id"]], row[productsIdx["brand"]]))
+)
+
+top_products_per_brand = brand_sells.filter(
+    lambda row: row[1][1] in less_sells_brands_names
+).map(
+    lambda row: ((row[1][1], row[0]), row[1][0])  # ((brand, product_id), line_total)
+).reduceByKey(lambda a, b: a + b) \
+.map(
+    lambda row: (row[0][0], (row[0][1], row[1]))  # (brand, (product_id, total_line))
+).reduceByKey(lambda a, b: a if a[1] > b[1] else b) \
+.collect()
+
+top_products_per_brand_ids = [prod[1][0] for prod in top_products_per_brand]
+top_products_per_brand_names = productsRDD.filter(
+    lambda row: row[productsIdx["id"]] in top_products_per_brand_ids
+).map(
+    lambda row: (row[productsIdx["id"]], row[productsIdx["name"]])
+).collectAsMap()
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 3 propuesta propia, label={lst:propia_q3_results}, xleftmargin=30pt, xrightmargin=30pt]
+Las marcas con menos unidades vendidas en 2025 son:
+ - APPLE: 4942 unidades vendidas
+ - ASHLEY FURNITURE: 5132 unidades vendidas
+ - CASTROL: 5135 unidades vendidas
+
+El producto mas vendido de cada una de esas marcas es:
+- APPLE: FACE-TO-FACE TANGIBLE STRATEGY con $133905.24 en ventas
+- ASHLEY FURNITURE: Distributed interactive neural-net con $30814.72 en ventas
+- CASTROL: Grass-roots directional success  con $83496.97 en ventas
+\end{lstlisting}
+
+\subsubsection{Rating promedio de los productos pertenecientes a la categoría más vendida.}
+
+Primero se hace un \textit{inner join} entre las tablas de \textit{order\_items} y \textit{products} para obtener la información de la categoría de cada producto vendido. Luego, se mapea cada fila del resultado a un par (categoría, monto de la venta) y se reduce por clave sumando los montos para obtener el total de ventas por cada categoría. Finalmente, se reduce el resultado para quedarse con la categoría que tiene el mayor monto de ventas y se obtiene su nombre de la tabla de categorías.
+
+Luego, se filtra la tabla de productos para quedarse solo con los productos que pertenecen a la categoría obtenida en el paso anterior. Se mapea cada producto a su ID y se colecta el resultado en una lista. Luego, se filtra la tabla de reseñas para quedarse solo con las reseñas cuyos product\_id están en la lista de productos de la categoría más vendida. Finalmente, se mapea cada reseña para que quede unicamente su rating y se calcula el promedios.
+
+
+
+\begin{lstlisting}[caption={Resolución de la consulta 4 propuesta propia.}, xleftmargin=20pt, xrightmargin=20pt]
+category_sells = itemsRDD.map(
+    lambda row: (row[itemsIdx["product_id"]], row[itemsIdx["line_total"]])
+).join(
+    productsRDD.filter(
+        lambda row: row[productsIdx["category_id"]] is not None
+    ).map(
+        lambda row: (row[productsIdx["id"]], row[productsIdx["category_id"]])
+    )
+)
+
+most_selled_category = category_sells.map(
+    lambda row: (row[1][1], row[1][0])  # (category_id, line_total)
+).reduceByKey(lambda a, b: a + b) \
+.reduce(lambda a, b: a if a[1] > b[1] else b)
+
+most_selled_category_name = categoriesRDD.filter(
+    lambda row: row[categoriesIdx["id"]] == most_selled_category[0]
+).first()[1]
+
+category_products = productsRDD.filter(
+    lambda row: (
+        row[productsIdx["category_id"]] is not None
+        and row[productsIdx["category_id"]] == most_selled_category[0]
+    )
+).map(
+    lambda row: row[productsIdx["id"]]
+).collect()
+
+category_mean_rating = reviewsRDD.filter(
+    lambda row: row[reviewsIdx["product_id"]] in category_products
+).map(
+    lambda row: row[reviewsIdx["rating"]]
+).mean()
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 4 propuesta propia, label={lst:propia_q4_results}, xleftmargin=5pt, xrightmargin=5pt]
+El rating promedio de los productos pertenecientes a la categoria mas vendida es de: 3.37
+\end{lstlisting}
+
+\subsubsection{Obtener los 3 productos `ELECTRONICS` con más movimientos por daños. Mostrar el cambio en la cantidad total para esos productos, y el promedio de cambios en la cantidad para los movimientos dañados.}
+Se toma una sola consideración: un producto es `ELECTRONICS` si su categoría padre es `ELECTRONICS`.
+
+Primero se filtra la tabla de categorías para quedarse solo con las categorías que tienen como padre a `ELECTRONICS`, y se mapea cada categoría a su ID. Luego, se filtra la tabla de productos para quedarse solo con los productos que pertenecen a las categorías obtenidas en el paso anterior, y se mapea cada producto a su ID. Ambos resultados se colectan en listas.
+
+Luego, se filtra la tabla de inventario para quedarse solo con los movimientos que tienen como razón `DAMAGE`, y se cachea el resultado para optimizar las siguientes operaciones. Se filtra el RDD cacheado para quedarse solo con los movimientos cuyos product\_id están en la lista de productos `ELECTRONICS`. Se mapea cada movimiento a un par (product\_id, (1, quantity)) y se reduce por clave sumando los valores para obtener el total de movimientos por daño y el total de cambios en la cantidad para cada producto. Se toman los 3 productos con más movimientos por daños y se obtienen sus nombres de la tabla de productos.
+
+Finalmente, se calcula el promedio de cambios en la cantidad para los movimientos dañados mapeando cada movimiento del RDD cacheado a su cantidad y calculando el promedio.
+    
+
+\begin{lstlisting}[caption={Resolución de la consulta 5 propuesta propia.}, xleftmargin=20pt, xrightmargin=20pt]
+electronics_categories_id = categoriesRDD.filter(
+    lambda row: row[categoriesIdx["parent"]] == "ELECTRONICS"
+).map(
+    lambda row: row[categoriesIdx["id"]]
+).collect()
+
+electronics_products_ids = productsRDD.filter(
+    lambda row: (
+        row[productsIdx["category_id"]] is not None
+        and row[productsIdx["category_id"]] in electronics_categories_id
+    )
+).map(
+    lambda row: row[productsIdx["id"]]
+).collect()
+
+damaged_movements = inventoryRDD.filter(
+    lambda row: row[inventoryIdx["reason"]] == reasons.value["DAMAGE"]
+).cache()
+
+damaged_electronics_movements_by_product = damaged_movements \
+.filter(lambda row: row[inventoryIdx["product_id"]] in electronics_products_ids) \
+.map(
+    lambda row:
+        (row[inventoryIdx["product_id"]], (1, row[inventoryIdx["quantity"]]))
+).reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1]))
+
+most_damaged_products = damaged_electronics_movements_by_product \
+    .takeOrdered(3, key=lambda x: -x[1][0])
+most_damaged_products_ids = [prod[0] for prod in most_damaged_products]
+
+most_damaged_products_names = productsRDD.filter(
+    lambda row: row[productsIdx["id"]] in most_damaged_products_ids
+).map(
+    lambda row: (row[productsIdx["id"]], row[productsIdx["name"]])
+).collectAsMap()
+
+damaged_movements_quantity_mean = damaged_movements.map(
+    lambda row: row[inventoryIdx["quantity"]]
+).mean()
+\end{lstlisting}
+
+\begin{lstlisting}[style=console, caption=Resultados de la consulta 5 propuesta propia, label={lst:propia_q5_results}, xleftmargin=10pt, xrightmargin=10pt]
+Los 3 productos ELECTRONICS con mas movimientos por danos son:
+ID	Total Movs.	Cambio tot. en Cant.	Nombre
+909144	4		349			Self-enabling discrete open system
+986689	4		327			UNDEFINED
+969306	4		-647			Pre-emptive zero tolerance encryption
+
+El promedio de cambios en la cantidad para los movimientos danados es de -0.00 unidades.
+\end{lstlisting}
+
+Notar que en el resultado de la consulta 5, el promedio de cambios en la cantidad para los movimientos dañados es -0.00 unidades. Esto se debe a que, como se identificó en el TP1, hay movimientos con cantidades positivas y negativas que se cancelan entre sí, resultando en un promedio cercano a cero.
+
+También puede verse que los tres productos con más movimientos por daños empatan en 4 movimientos cada uno. Si se realiza el chequeo, se puede observar que en realidad hay varios productos que empatan en 4 movimientos.
