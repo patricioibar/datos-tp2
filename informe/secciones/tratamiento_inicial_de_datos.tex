@@ -3,10 +3,44 @@
 
 Antes de realizar las consultas, es fundamental llevar a cabo un tratamiento inicial de los datos para asegurar su calidad y consistencia. Este proceso incluye la carga de datos, el manejo de valores faltantes y la normalización de datos.
 
-\subsection{Carga de Datos}
-
 Los datos fueron cargados desde un archivo CSV utilizando SQLContext de Spark. Al cargar una tabla, lo primero que hice en todos los casos fue tomar el RDD subyacente y hacer un map para quedarme solo con las columnas que me interesan para las consultas que iba a realizar. Este map también se aprovecha para convertir los tipos de datos a tipos más adecuados, normalizar cadenas de texto, y extraer los datos necesarios para las consultas, construyendo nuevas columnas si es necesario.
 
 En cuanto a la conversión a tipos de datos, se estableció el parámetro \texttt{inferSchema} en verdadero al leer el CSV, lo que le permite a Spark inferir automáticamente los tipos de datos de las columnas. Sin embargo, en muchos casos, fue necesario especificar explícitamente los tipos de datos al cargar los datos, especialmente para columnas de IDs, que se convirtieron en enteros. Esto no solo mejora la eficiencia del almacenamiento, sino que también facilita las operaciones de unión y filtrado. 
 
-Las columnas con valores categóricos como \texttt{status} y \texttt{payment\_method} en la tabla de órdenes, se convirtieron también a números enteros identificadores. Estos números enteros se mapean a los valores reales a través de diccionarios en Python, lo que permite un acceso rápido y eficiente a los valores categóricos originales cuando es necesario. Se considera que estos diccionarios no ocupan un espacio significativo en memoria, por lo que fueron \textbf{broadcasteados} a todos los nodos del clúster para optimizar el rendimiento durante las consultas.
+Las columnas con valores categóricos como \texttt{status} y \texttt{payment\_method} en la tabla de órdenes, se convirtieron también a números enteros identificadores. Estos números enteros se mapean a los valores reales a través de diccionarios en Python, lo que permite un acceso rápido y eficiente a los valores categóricos originales cuando es necesario. Se considera que estos diccionarios no ocupan un espacio significativo en memoria, por lo que fueron \textbf{broadcasteados} a todos los nodos del clúster para optimizar el rendimiento durante las consultas. 
+
+Esto se realizo siguiendo un patrón similar al mostrado en el Listing \ref{lst:conversion_categorica}. Se tiene un archivo de texto con todos los valores posibles para la columna, recolectados de lo aprendido en el TP1. Luego se crea un diccionario que mapea cada valor a un ID numérico, y se hace un broadcast de este diccionario para que esté disponible en todos los nodos del clúster. También se crea un diccionario inverso para mapear los IDs numéricos de vuelta a los valores originales cuando sea necesario, el cual en algunos casos se usa desde el nodo driver y en otros casos también se bradcastea a todos los nodos del cluster.
+
+\begin{figure}[H]
+\begin{lstlisting}[language=Python, caption=Ejemplo de conversión de columna categórica a ID numérico, label={lst:conversion_categorica}]
+state_dict = {}
+with open("states.txt", "r") as f:
+    valid_states = [line.strip() for line in f.readlines()]
+    id = 0
+    for state in valid_states:
+        state_dict[state] = id
+        id += 1
+
+states = sc.broadcast(state_dict)
+
+state_id_to_name = {v: k for k, v in state_dict.items()}
+\end{lstlisting}
+\end{figure}
+
+
+Para la extracción de estado y código postal de la columna \texttt{billing\_address} en la tabla de órdenes, se utilizó la misma estrategia que en el TP1: una expresión regular que busca un patrón específico en la cadena de texto. Este patrón consiste en dos letras mayúsculas seguidas de un espacio y cinco dígitos, que es el formato típico de los códigos postales en Estados Unidos. Si la dirección no contiene este patrón, se asigna un valor nulo a las nuevas columnas de estado y código postal.
+
+
+\begin{lstlisting}[language=Python, caption=Extracción de estado y código postal de la dirección de facturación, label={lst:extraccion_estado_cp}]
+def state_and_postal_code(address):
+if address is None:
+    return "UNDEFINED", None
+pattern = r'([A-Z]{2})\s(\d{5})'
+match = re.search(pattern, address)
+if match:
+    return match.group(1), int(match.group(2))
+return "UNDEFINED", None
+\end{lstlisting}
+
+
+Por último, para hacer más visual la lectura del código, se crearon diccionarios que mapean los nombres de las columnas a sus respectivos índices en el RDD. Esto facilita el acceso a las columnas por nombre en lugar de por índice numérico, mejorando la legibilidad del código. Preferí esta estrategia en lugar de usar objetos Row de Spark, ya que estos últimos tienen un overhead de memoria y procesamiento que hacía una diferencia notable en la rapidez en que se ejecutaban las consultas.
