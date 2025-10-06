@@ -3,8 +3,6 @@
 
 Antes de realizar las consultas, es fundamental llevar a cabo un tratamiento inicial de los datos para asegurar su calidad y consistencia. Este proceso incluye la carga de datos, el manejo de valores faltantes y la normalización de datos.
 
-\subsection{Carga de Datos}
-
 Los datos fueron cargados desde un archivo CSV utilizando SQLContext de Spark. Al cargar una tabla, lo primero que hice en todos los casos fue tomar el RDD subyacente y hacer un map para quedarme solo con las columnas que me interesan para las consultas que iba a realizar. Este map también se aprovecha para convertir los tipos de datos a tipos más adecuados, normalizar cadenas de texto, y extraer los datos necesarios para las consultas, construyendo nuevas columnas si es necesario.
 
 En cuanto a la conversión a tipos de datos, se estableció el parámetro \texttt{inferSchema} en verdadero al leer el CSV, lo que le permite a Spark inferir automáticamente los tipos de datos de las columnas. Sin embargo, en muchos casos, fue necesario especificar explícitamente los tipos de datos al cargar los datos, especialmente para columnas de IDs, que se convirtieron en enteros. Esto no solo mejora la eficiencia del almacenamiento, sino que también facilita las operaciones de unión y filtrado. 
