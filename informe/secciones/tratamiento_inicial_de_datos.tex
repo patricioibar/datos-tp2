@@ -9,7 +9,7 @@ En cuanto a la conversión a tipos de datos, se estableció el parámetro \textt
 
 Las columnas con valores categóricos como \texttt{status} y \texttt{payment\_method} en la tabla de órdenes, se convirtieron también a números enteros identificadores. Estos números enteros se mapean a los valores reales a través de diccionarios en Python, lo que permite un acceso rápido y eficiente a los valores categóricos originales cuando es necesario. Se considera que estos diccionarios no ocupan un espacio significativo en memoria, por lo que fueron \textbf{broadcasteados} a todos los nodos del clúster para optimizar el rendimiento durante las consultas. 
 
-Esto se realizo siguiendo un patrón similar al mostrado en el Listing \ref{lst:conversion_categorica}. Se tiene un archivo de texto con todos los valores posibles para la columna, recolectados de lo aprendido en el TP1. Luego se crea un diccionario que mapea cada valor a un ID numérico, y se hace un broadcast de este diccionario para que esté disponible en todos los nodos del clúster. También se crea un diccionario inverso para mapear los IDs numéricos de vuelta a los valores originales cuando sea necesario, el cual en algunos casos se usa desde el nodo driver y en otros casos también se bradcastea a todos los nodos del cluster.
+Esto se realizo siguiendo un patrón como el mostrado en el Listing \ref{lst:conversion_categorica}. Se tiene un archivo de texto con todos los valores posibles para la columna, recolectados de lo aprendido en el TP1. Luego se crea un diccionario que mapea cada valor a un ID numérico, y se hace un broadcast de este diccionario para que esté disponible en todos los nodos del clúster. También se crea un diccionario inverso para mapear los IDs numéricos de vuelta a los valores originales cuando sea necesario, el cual en algunos casos se usa desde el nodo driver y en otros casos también se bradcastea a todos los nodos del cluster.
 
 \begin{figure}[H]
 \begin{lstlisting}[language=Python, caption=Ejemplo de conversión de columna categórica a ID numérico, label={lst:conversion_categorica}]
@@ -26,6 +26,8 @@ states = sc.broadcast(state_dict)
 state_id_to_name = {v: k for k, v in state_dict.items()}
 \end{lstlisting}
 \end{figure}
+
+Este tratamiento se realizó para los campos de métodos de pago, razones de logs en el inventario, segmentos de cliente, estados de órdenes y estados de direcciones de la la orden. No se realizó para marcas de productos, aunque podría hacerse de ser necesario. Tampoco se realizó para categorías de productos.
 
 
 Para la extracción de estado y código postal de la columna \texttt{billing\_address} en la tabla de órdenes, se utilizó la misma estrategia que en el TP1: una expresión regular que busca un patrón específico en la cadena de texto. Este patrón consiste en dos letras mayúsculas seguidas de un espacio y cinco dígitos, que es el formato típico de los códigos postales en Estados Unidos. Si la dirección no contiene este patrón, se asigna un valor nulo a las nuevas columnas de estado y código postal.
